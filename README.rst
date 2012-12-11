@@ -16,9 +16,9 @@ Install from PyPI::
 
 Or install the `in-development version`_ using ``pip``::
 
-    pip install -e git+git://github.com/aleszoulek/django-constance#egg=django-constance
+    pip install -e git+git://github.com/comoga/django-constance#egg=django-constance
 
-.. _`in-development version`: https://github.com/aleszoulek/django-constance/tarball/master#egg=django-constance-dev
+.. _`in-development version`: https://github.com/comoga/django-constance/tarball/master#egg=django-constance-dev
 
 Configuration
 -------------
@@ -55,7 +55,7 @@ Redis (default)
 
 ::
 
-    CONSTANCE_BACKEND = constance.backends.redisd.RedisBackend
+    CONSTANCE_BACKEND = 'constance.backends.redisd.RedisBackend'
 
 The is the default backend and has a couple of options:
 
@@ -173,11 +173,11 @@ with ``MY_SETTINGS_KEY`` in the ``Config`` pseudo model.
 Screenshots
 -----------
 
-.. figure:: https://github.com/aleszoulek/django-constance/raw/master/docs/screenshot2.png
+.. figure:: https://github.com/comoga/django-constance/raw/master/docs/screenshot2.png
 
    The standard edit screen.
 
-.. figure:: https://github.com/aleszoulek/django-constance/raw/master/docs/screenshot1.png
+.. figure:: https://github.com/comoga/django-constance/raw/master/docs/screenshot1.png
 
    The virtual application ``Constance`` among your regular applications.
 

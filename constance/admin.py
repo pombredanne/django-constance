@@ -12,7 +12,7 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import render_to_response
 from django.template.context import RequestContext
 from django.utils.formats import localize
-from django.utils.translation import ugettext_lazy as _
+from django.utils.translation import ugettext as _
 
 from constance import config, settings
 
@@ -57,6 +57,10 @@ class ConstanceAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.changelist_view),
                 name='%s_%s_changelist' % info
             ),
+            url(r'^$',
+                self.admin_site.admin_view(self.changelist_view),
+                name='%s_%s_add' % info
+            ),
         )
 
     @csrf_protect_m
@@ -76,7 +80,6 @@ class ConstanceAdmin(admin.ModelAdmin):
                 return HttpResponseRedirect('.')
         context = {
             'config': [],
-            'root_path': self.admin_site.root_path,
             'title': _('Constance config'),
             'app_label': 'constance',
             'opts': Config._meta,
@@ -92,7 +95,7 @@ class ConstanceAdmin(admin.ModelAdmin):
             context['config'].append({
                 'name': name,
                 'default': localize(default),
-                'help_text': help_text,
+                'help_text': _(help_text),
                 'value': localize(value),
                 'modified': value != default,
                 'form_field': form[name]
@@ -108,8 +111,11 @@ class ConstanceAdmin(admin.ModelAdmin):
     def has_delete_permission(self, *args, **kwargs):
         return False
 
-    def has_change_permission(self, *args, **kwargs):
-        return True
+    def has_change_permission(self, request, obj=None, *args, **kwargs):
+        if request.user.is_superuser:
+            return True
+        else:
+            return False
 
 
 class Config(object):
@@ -118,6 +124,7 @@ class Config(object):
         module_name = 'config'
         verbose_name_plural = 'config'
         get_ordered_objects = lambda x: False
+        abstract = False
     _meta = Meta()
 
 
