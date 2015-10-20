@@ -72,6 +72,22 @@ TEMPLATE_LOADERS = (
 #     'django.template.loaders.eggs.Loader',
 )
 
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
 MIDDLEWARE_CLASSES = (
     'django.middleware.common.CommonMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -99,17 +115,29 @@ INSTALLED_APPS = (
     'cheeseshop.apps.catalog',
     'cheeseshop.apps.storage',
     'constance',
+    'constance.backends.database',
 )
 
-CONSTANCE_CONNECTION = {
+CONSTANCE_REDIS_CONNECTION = {
     'host': 'localhost',
     'port': 6379,
     'db': 0,
 }
 
 CONSTANCE_CONFIG = {
-	'BANNER': ('The National Cheese Emporium', 'name of the shop'),
+    'BANNER': ('The National Cheese Emporium', 'name of the shop'),
     'OWNER': ('Mr. Henry Wensleydale', 'owner of the shop'),
     'MUSICIANS': (4, 'number of musicians inside the shop'),
     'DATE_ESTABLISHED': (datetime(1972, 11, 30), "the shop's first opening"),
 }
+
+CONSTANCE_BACKEND = 'constance.backends.database.DatabaseBackend'
+
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.memcached.MemcachedCache',
+        'LOCATION': '127.0.0.1:11211',
+    }
+}
+CONSTANCE_DATABASE_CACHE_BACKEND = 'default'

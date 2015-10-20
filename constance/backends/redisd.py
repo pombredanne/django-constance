@@ -1,9 +1,9 @@
-from six.moves import zip
-
 from django.core.exceptions import ImproperlyConfigured
+from django.utils import six
+from django.utils.six.moves import zip
 
-from constance import settings, utils
-from constance.backends import Backend
+from . import Backend
+from .. import settings, utils
 
 try:
     from cPickle import loads, dumps
@@ -16,7 +16,7 @@ class RedisBackend(Backend):
     def __init__(self):
         super(RedisBackend, self).__init__()
         self._prefix = settings.REDIS_PREFIX
-        connection_cls = settings.CONNECTION_CLASS
+        connection_cls = settings.REDIS_CONNECTION_CLASS
         if connection_cls is not None:
             self._rd = utils.import_module_attr(connection_cls)()
         else:
@@ -25,7 +25,7 @@ class RedisBackend(Backend):
             except ImportError:
                 raise ImproperlyConfigured(
                     "The Redis backend requires redis-py to be installed.")
-            if isinstance(settings.REDIS_CONNECTION, basestring):
+            if isinstance(settings.REDIS_CONNECTION, six.string_types):
                 self._rd = redis.from_url(settings.REDIS_CONNECTION)
             else:
                 self._rd = redis.Redis(**settings.REDIS_CONNECTION)

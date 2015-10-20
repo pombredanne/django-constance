@@ -1,27 +1,26 @@
 from datetime import datetime, date, time
 from decimal import Decimal
+import hashlib
 from operator import itemgetter
-import six
 
-from django import forms
+from django import forms, VERSION
+from django.conf.urls import url
 from django.contrib import admin, messages
 from django.contrib.admin import widgets
 from django.contrib.admin.options import csrf_protect_m
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ImproperlyConfigured
 from django.forms import fields
 from django.http import HttpResponseRedirect
-from django.shortcuts import render_to_response
-from django.template.context import RequestContext
+from django.template.response import TemplateResponse
+from django.utils import six
+from django.utils.encoding import smart_bytes
 from django.utils.formats import localize
-from django.utils.translation import ugettext as _
-
-try:
-    from django.conf.urls import patterns, url
-except ImportError:  # Django < 1.4
-    from django.conf.urls.defaults import patterns, url
+from django.utils.translation import ugettext_lazy as _
 
 
-from constance import config, settings
+from . import LazyConfig, settings
+
+config = LazyConfig()
 
 
 NUMERIC_WIDGET = forms.TextInput(attrs={'size': 10})
@@ -51,29 +50,53 @@ if not six.PY3:
 
 
 class ConstanceForm(forms.Form):
-    def __init__(self, *args, **kwargs):
-        super(ConstanceForm, self).__init__(*args, **kwargs)
+    version = forms.CharField(widget=forms.HiddenInput)
+
+    def __init__(self, initial, *args, **kwargs):
+        super(ConstanceForm, self).__init__(*args, initial=initial, **kwargs)
+        version_hash = hashlib.md5()
+
         for name, (default, help_text) in settings.CONFIG.items():
-            field_class, kwargs = FIELDS[type(default)]
+            config_type = type(default)
+            if config_type not in FIELDS:
+                raise ImproperlyConfigured(_("Constance doesn't support "
+                                             "config values of the type "
+                                             "%(config_type)s. Please fix "
+                                             "the value of '%(name)s'.")
+                                           % {'config_type': config_type,
+                                              'name': name})
+            field_class, kwargs = FIELDS[config_type]
             self.fields[name] = field_class(label=name, **kwargs)
 
+            version_hash.update(smart_bytes(initial.get(name, '')))
+        self.initial['version'] = version_hash.hexdigest()
+
     def save(self):
-        for name in self.cleaned_data:
+        for name in settings.CONFIG:
             setattr(config, name, self.cleaned_data[name])
+
+    def clean_version(self):
+        value = self.cleaned_data['version']
+        if value != self.initial['version']:
+            raise forms.ValidationError(_('The settings have been modified '
+                                          'by someone else. Please reload the '
+                                          'form and resubmit your changes.'))
+        return value
 
 
 class ConstanceAdmin(admin.ModelAdmin):
+    change_list_template = 'admin/constance/change_list.html'
 
     def get_urls(self):
         info = self.model._meta.app_label, self.model._meta.module_name
-        return patterns('',
+        return [
             url(r'^$',
                 self.admin_site.admin_view(self.changelist_view),
                 name='%s_%s_changelist' % info),
             url(r'^$',
                 self.admin_site.admin_view(self.changelist_view),
                 name='%s_%s_add' % info),
-        )
+        ]
 
     @csrf_protect_m
     def changelist_view(self, request, extra_context=None):
@@ -87,7 +110,7 @@ class ConstanceAdmin(admin.ModelAdmin):
             **dict(config._backend.mget(settings.CONFIG.keys())))
         form = ConstanceForm(initial=initial)
         if request.method == 'POST':
-            form = ConstanceForm(request.POST)
+            form = ConstanceForm(data=request.POST, initial=initial)
             if form.is_valid():
                 form.save()
                 # In django 1.5 this can be replaced with self.message_user
@@ -98,7 +121,7 @@ class ConstanceAdmin(admin.ModelAdmin):
                 )
                 return HttpResponseRedirect('.')
         context = {
-            'config': [],
+            'config_values': [],
             'title': _('Constance config'),
             'app_label': 'constance',
             'opts': Config._meta,
@@ -111,7 +134,7 @@ class ConstanceAdmin(admin.ModelAdmin):
             # Then if the returned value is None, get the default
             if value is None:
                 value = getattr(config, name)
-            context['config'].append({
+            context['config_values'].append({
                 'name': name,
                 'default': localize(default),
                 'help_text': _(help_text),
@@ -119,11 +142,12 @@ class ConstanceAdmin(admin.ModelAdmin):
                 'modified': value != default,
                 'form_field': form[name],
             })
-        context['config'].sort(key=itemgetter('name'))
-        context_instance = RequestContext(request,
-                                          current_app=self.admin_site.name)
-        return render_to_response('admin/constance/change_list.html',
-            context, context_instance=context_instance)
+        context['config_values'].sort(key=itemgetter('name'))
+        request.current_app = self.admin_site.name
+        # compatibility to be removed when 1.7 is deprecated
+        extra = {'current_app': self.admin_site.name} if VERSION < (1, 8) else {}
+        return TemplateResponse(request, self.change_list_template, context,
+                                **extra)
 
     def has_add_permission(self, *args, **kwargs):
         return False
@@ -142,10 +166,12 @@ class Config(object):
         app_label = 'constance'
         object_name = 'Config'
         model_name = module_name = 'config'
-        verbose_name_plural = 'config'
-        get_ordered_objects = lambda x: False
+        verbose_name_plural = _('config')
         abstract = False
         swapped = False
+
+        def get_ordered_objects(self):
+            return False
 
         def get_change_permission(self):
             return 'change_%s' % self.model_name

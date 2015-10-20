@@ -5,3 +5,6 @@
 build/
 dist/
 test.db
+.tox
+.coverage
+docs/_build
