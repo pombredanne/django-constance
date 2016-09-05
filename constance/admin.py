@@ -15,7 +15,9 @@ from django.template.response import TemplateResponse
 from django.utils import six
 from django.utils.encoding import smart_bytes
 from django.utils.formats import localize
+from django.utils.module_loading import import_string
 from django.utils.translation import ugettext_lazy as _
+import django
 
 
 from . import LazyConfig, settings
@@ -36,11 +38,35 @@ FIELDS = {
     int: INTEGER_LIKE,
     Decimal: (fields.DecimalField, {'widget': NUMERIC_WIDGET}),
     str: STRING_LIKE,
-    datetime: (fields.DateTimeField, {'widget': widgets.AdminSplitDateTime}),
+    datetime: (fields.SplitDateTimeField, {'widget': widgets.AdminSplitDateTime}),
     date: (fields.DateField, {'widget': widgets.AdminDateWidget}),
     time: (fields.TimeField, {'widget': widgets.AdminTimeWidget}),
     float: (fields.FloatField, {'widget': NUMERIC_WIDGET}),
 }
+
+
+def parse_additional_fields(fields):
+    for key in fields:
+        field = list(fields[key])
+
+        if len(field) == 1:
+            field.append({})
+
+        field[0] = import_string(field[0])
+
+        if 'widget' in field[1]:
+            klass = import_string(field[1]['widget'])
+            field[1]['widget'] = klass(**(field[1].get('widget_kwargs', {}) or {}))
+
+            if 'widget_kwargs' in field[1]:
+                del field[1]['widget_kwargs']
+
+        fields[key] = field
+
+    return fields
+
+
+FIELDS.update(parse_additional_fields(settings.ADDITIONAL_FIELDS))
 
 if not six.PY3:
     FIELDS.update({
@@ -56,8 +82,13 @@ class ConstanceForm(forms.Form):
         super(ConstanceForm, self).__init__(*args, initial=initial, **kwargs)
         version_hash = hashlib.md5()
 
-        for name, (default, help_text) in settings.CONFIG.items():
-            config_type = type(default)
+        for name, options in settings.CONFIG.items():
+            default, help_text = options[0], options[1]
+            if len(options) == 3:
+                config_type = options[2]
+            else:
+                config_type = type(default)
+
             if config_type not in FIELDS:
                 raise ImproperlyConfigured(_("Constance doesn't support "
                                              "config values of the type "
@@ -77,6 +108,10 @@ class ConstanceForm(forms.Form):
 
     def clean_version(self):
         value = self.cleaned_data['version']
+
+        if settings.IGNORE_ADMIN_VERSION_CHECK:
+            return value
+
         if value != self.initial['version']:
             raise forms.ValidationError(_('The settings have been modified '
                                           'by someone else. Please reload the '
@@ -86,6 +121,7 @@ class ConstanceForm(forms.Form):
 
 class ConstanceAdmin(admin.ModelAdmin):
     change_list_template = 'admin/constance/change_list.html'
+    change_list_form = ConstanceForm
 
     def get_urls(self):
         info = self.model._meta.app_label, self.model._meta.module_name
@@ -98,19 +134,37 @@ class ConstanceAdmin(admin.ModelAdmin):
                 name='%s_%s_add' % info),
         ]
 
+    def get_config_value(self, name, options, form, initial):
+        default, help_text = options[0], options[1]
+        # First try to load the value from the actual backend
+        value = initial.get(name)
+        # Then if the returned value is None, get the default
+        if value is None:
+            value = getattr(config, name)
+        config_value = {
+            'name': name,
+            'default': localize(default),
+            'help_text': _(help_text),
+            'value': localize(value),
+            'modified': value != default,
+            'form_field': form[name],
+        }
+
+        return config_value
+
     @csrf_protect_m
     def changelist_view(self, request, extra_context=None):
         # First load a mapping between config name and default value
         if not self.has_change_permission(request, None):
             raise PermissionDenied
-        default_initial = ((name, default)
-            for name, (default, help_text) in settings.CONFIG.items())
+        default_initial = ((name, options[0])
+            for name, options in settings.CONFIG.items())
         # Then update the mapping with actually values from the backend
         initial = dict(default_initial,
             **dict(config._backend.mget(settings.CONFIG.keys())))
-        form = ConstanceForm(initial=initial)
+        form = self.change_list_form(initial=initial)
         if request.method == 'POST':
-            form = ConstanceForm(data=request.POST, initial=initial)
+            form = self.change_list_form(data=request.POST, initial=initial)
             if form.is_valid():
                 form.save()
                 # In django 1.5 this can be replaced with self.message_user
@@ -124,24 +178,30 @@ class ConstanceAdmin(admin.ModelAdmin):
             'config_values': [],
             'title': _('Constance config'),
             'app_label': 'constance',
-            'opts': Config._meta,
+            'opts': self.model._meta,
             'form': form,
             'media': self.media + form.media,
+            'icon_type': 'gif' if VERSION < (1, 9) else 'svg',
         }
-        for name, (default, help_text) in settings.CONFIG.items():
-            # First try to load the value from the actual backend
-            value = initial.get(name)
-            # Then if the returned value is None, get the default
-            if value is None:
-                value = getattr(config, name)
-            context['config_values'].append({
-                'name': name,
-                'default': localize(default),
-                'help_text': _(help_text),
-                'value': localize(value),
-                'modified': value != default,
-                'form_field': form[name],
-            })
+        for name, options in settings.CONFIG.items():
+            context['config_values'].append(self.get_config_value(name, options, form, initial))
+
+        if settings.CONFIG_FIELDSETS:
+            context['fieldsets'] = []
+            for fieldset_title, fields_list in settings.CONFIG_FIELDSETS.items():
+                fields_exist = all(field in settings.CONFIG.keys() for field in fields_list)
+                assert fields_exist, "CONSTANCE_CONFIG_FIELDSETS contains fields that does not exist"
+                config_values = []
+
+                for name, options in settings.CONFIG.items():
+                    if name in fields_list:
+                        config_values.append(self.get_config_value(name, options, form, initial))
+
+                context['fieldsets'].append({
+                    'title': fieldset_title,
+                    'config_values': config_values
+                })
+
         context['config_values'].sort(key=itemgetter('name'))
         request.current_app = self.admin_site.name
         # compatibility to be removed when 1.7 is deprecated

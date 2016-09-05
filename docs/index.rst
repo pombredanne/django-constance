@@ -16,11 +16,11 @@ Install from PyPI the backend specific variant of django-constance:
 
 For the (default) Redis backend::
 
-    pip install django-constance[redis]
+    pip install "django-constance[redis]"
 
 For the database backend::
 
-    pip install django-constance[database]
+    pip install "django-constance[database]"
 
 Alternatively -- if you're sure that the dependencies are already
 installed -- you can also run::
@@ -37,6 +37,12 @@ the :setting:`CONSTANCE_CONFIG` section, like this:
 .. code-block:: python
 
     INSTALLED_APPS = (
+        'django.contrib.admin',
+        'django.contrib.staticfiles',
+        'django.contrib.auth',
+        'django.contrib.contenttypes',
+        'django.contrib.sessions',
+        'django.contrib.messages',
         ...
         'constance',
     )
@@ -52,6 +58,84 @@ admin will show.
 
 See the :ref:`Backends <backends>` section how to setup the backend and
 finish the configuration.
+
+``django-constance``'s hashes generated in different instances of the same
+application may differ, preventing data from being saved.
+
+Use this option in order to skip hash verification.
+
+.. code-block:: python
+
+    CONSTANCE_IGNORE_ADMIN_VERSION_CHECK = True
+
+Custom fields
+-------------
+
+You can set the field type with the third value in the `CONSTANCE_CONFIG` tuple.
+
+The value can be one of the supported types or a string matching a key in your :setting:`CONSTANCE_ADDITIONAL_FIELDS`
+
+The supported types are:
+
+* `bool`
+* `int`
+* `float`
+* `Decimal`
+* `long` (on python 2)
+* `str`
+* `unicode` (on python 2)
+* `datetime`
+* `date`
+* `time`
+
+For example, to force a value to be handled as a string:
+
+.. code-block:: python
+
+        'THE_ANSWER': (42, 'Answer to the Ultimate Question of Life, '
+                                   'The Universe, and Everything', str),
+
+Custom field types are supported using the dictionary :setting:`CONSTANCE_ADDITIONAL_FIELDS`.
+
+This is a mapping between a field label and a sequence (list or tuple).  The first item in the sequence is the string
+path of a field class, and the (optional) second item is a dictionary used to configure the field.
+
+The `widget` and `widget_kwargs` keys in the field config dictionary can be used to configure the widget used in admin,
+the other values will be passed as kwargs to the field's `__init__()`
+
+Note: Use later evaluated strings instead of direct classes for the field and widget classes:
+
+.. code-block:: python
+
+        CONSTANCE_ADDITIONAL_FIELDS = {
+            'yes_no_null_select': ['django.forms.fields.ChoiceField', {
+                'widget': 'django.forms.Select',
+                'choices': (("-----", None), ("yes", "Yes"), ("no", "No"))
+            }],
+        }
+
+        CONSTANCE_CONFIG = {
+            'MY_SELECT_KEY': ('yes', 'select yes or no', 'yes_no_null_select'),
+        }
+
+Fieldsets
+-------------
+
+To group settings together you can define fieldsets. Here's an example:
+
+.. code-block:: python
+
+        CONSTANCE_CONFIG = {
+            'SITE_NAME': ('My Title', 'Website title'),
+            'SITE_DESCRIPTION': ('', 'Website description'),
+            'THEME': ('light-blue', 'Website theme'),
+        }
+
+        CONSTANCE_CONFIG_FIELDSETS = {
+            'General Options': ('SITE_NAME', 'SITE_DESCRIPTION'),
+            'Theme Options': ('THEME',),
+        }
+.. image:: screenshot3.png
 
 Usage
 -----
@@ -125,6 +209,32 @@ setting to ``False`` and give the users or user groups access to the
 .. figure:: screenshot1.png
 
    The virtual application ``Constance`` among your regular applications.
+
+Custom settings form
+--------------------
+
+If you aim at creating a custom settings form this is possible in the following
+way: You can inherit from ``ConstanceAdmin`` and set the ``form`` property on
+your custom admin to use your custom form. This allows you to define your own
+formsets and layouts, similar to defining a custom form on a standard
+Django ModelAdmin. This way you can fully style your settings form and group
+settings the way you like.
+
+.. code-block:: python
+
+    from constance.admin import ConstanceAdmin, ConstanceForm, Config
+    class CustomConfigForm(ConstanceForm):
+          def __init__(self, *args, **kwargs):
+            super(CustomConfigForm, self).__init__(*args, **kwargs)
+            #... do stuff to make your settings form nice ...
+
+    class ConfigAdmin(ConstanceAdmin):
+        change_list_form = CustomConfigForm
+        change_list_template = 'admin/config/settings.html'
+
+    admin.site.unregister([Config])
+    admin.site.register([Config], ConfigAdmin)
+
 
 More documentation
 ------------------

@@ -61,6 +61,9 @@ class DatabaseBackend(Backend):
         key = self.add_prefix(key)
         if self._cache:
             value = self._cache.get(key)
+            if value is None:
+                self.autofill()
+                value = self._cache.get(key)
         else:
             value = None
         if value is None:
@@ -80,6 +83,8 @@ class DatabaseBackend(Backend):
         if not created:
             constance.value = value
             constance.save()
+        if self._cache:
+            self._cache.set(key, value)
 
     def clear(self, sender, instance, created, **kwargs):
         if self._cache and not created:
